@@ -1,0 +1,141 @@
+name: assignment3
+on: 
+  push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+    - name: Write data to log file
+      run: |
+        echo "$(date -Iminutes)" >> /tmp/log.txt
+        echo "Ofek Manor" >> /tmp/log.txt
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    - name: Build and export
+      uses: docker/build-push-action@v3
+      with:
+        context: .
+        file: ./Dockerfile
+        tags: mealserver:latest
+        outputs: type=docker,dest=/tmp/image.tar
+    - name: Write success to log file
+      if: success()
+      run: echo "image successfully built" >> /tmp/log.txt
+    - name: Write failure to log file
+      if: failure()
+      run: echo "image not able to be built" >> /tmp/log.txt
+    - name: Upload log artifact
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: log
+        path: /tmp/log.txt
+    - name: Upload image artifact
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: mealserverImage
+        path: /tmp/image.tar
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+#    1. download image and run it in a container
+    - name: Download image artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: mealserverImage
+        path: /tmp
+    - name: Download log artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: log
+        path: /tmp
+    - name: Load Docker images from previous workflows
+      run: docker load --input /tmp/image.tar
+    - name: check mealserver image is loaded
+      run: docker image ls
+    - name: run image in container
+      run: docker run -p8000:8000 mealserver &
+    - name: Check container is running
+      run: docker ps
+    - name: Write container success to log file
+      if: success()
+      run: echo "Container up and running" >> /tmp/log.txt
+    - name: Write container failure to log file
+      if: failure()
+      run: echo "Container failed to run" >> /tmp/log.txt
+#     2. set up python and pytest environment
+    - name: Checkout
+      uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest # not using yet lint checker like ruff
+        pip install requests
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+#      3. run pytest tests and check results
+    - name: Test with pytest  # additionally use ruff or other lint checkers
+      run: |
+        cd tests
+        pytest -v assn3_tests.py > assn3_test_results.txt
+    - name: Write test success to log file
+      if: success()
+      run: echo "tests succeeded" >> /tmp/log.txt
+    - name: Write test failure to log file
+      if: failure()
+      run: echo "tests failed" >> /tmp/log.txt 
+    - name: upload test results
+      if: always()  # always perform this step even if tests fail, to see results
+      uses: actions/upload-artifact@v3
+      with:
+        name: assn3_test_results
+        path: tests/assn3_test_results.txt
+    - name: upload log file
+      if: always()  # always perform this step even if tests fail, to see results
+      uses: actions/upload-artifact@v3
+      with:
+        name: log
+        path: /tmp/log.txt
+
+  query:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3    
+    - name: Download image artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: mealserverImage
+        path: /tmp
+    - name: Load Docker images from previous workflows
+      run: docker load --input /tmp/image.tar
+    - name: check mealserver image is loaded
+      run: docker image ls
+    - name: run image in container
+      run: docker run -p8000:8000 mealserver &
+    - name: Check container is running
+      run: docker ps
+    - name: Set up Python
+      uses: actions/setup-python@v4
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    - name: run queries
+      run: |
+        python3 -c 'from queries import assn3_query; assn3_query.execute_queries("./query.txt")' >> /tmp/response.txt
+    - name: upload response file
+      if: always()  # always perform this step even if tests fail, to see results
+      uses: actions/upload-artifact@v3
+      with:
+        name: response
+        path: /tmp/response.txt
+        
